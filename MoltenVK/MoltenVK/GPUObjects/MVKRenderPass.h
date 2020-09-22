@@ -67,6 +67,9 @@ public:
 	/** Returns the Vulkan sample count of the attachments used in this subpass. */
 	VkSampleCountFlagBits getSampleCount();
 
+	/** Sets the default sample count for when there are no attachments used in this subpass. */
+	void setDefaultSampleCount(VkSampleCountFlagBits count) { _defaultSampleCount = count; }
+
 	/** Returns whether or not this is a multiview subpass. */
 	bool isMultiview() const { return _viewMask != 0; }
 
@@ -140,7 +143,11 @@ private:
 	MVKSmallVector<VkAttachmentReference2, kMVKDefaultAttachmentCount> _resolveAttachments;
 	MVKSmallVector<uint32_t, kMVKDefaultAttachmentCount> _preserveAttachments;
 	VkAttachmentReference2 _depthStencilAttachment;
+	VkAttachmentReference2 _depthStencilResolveAttachment;
+	VkResolveModeFlagBits _depthResolveMode = VK_RESOLVE_MODE_NONE;
+	VkResolveModeFlagBits _stencilResolveMode = VK_RESOLVE_MODE_NONE;
 	id<MTLTexture> _mtlDummyTex = nil;
+	VkSampleCountFlagBits _defaultSampleCount = VK_SAMPLE_COUNT_1_BIT;
 };
 
 

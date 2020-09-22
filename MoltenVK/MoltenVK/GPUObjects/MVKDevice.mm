@@ -164,13 +164,24 @@ void MVKPhysicalDevice::getFeatures(VkPhysicalDeviceFeatures2* features) {
 				divisorFeatures->vertexAttributeInstanceRateZeroDivisor = true;
 				break;
 			}
-			case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PORTABILITY_SUBSET_FEATURES_EXTX: {
-				auto* portabilityFeatures = (VkPhysicalDevicePortabilitySubsetFeaturesEXTX*)next;
-				portabilityFeatures->triangleFans = false;
-				portabilityFeatures->separateStencilMaskRef = true;
+			case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PORTABILITY_SUBSET_FEATURES_KHR: {
+				auto* portabilityFeatures = (VkPhysicalDevicePortabilitySubsetFeaturesKHR*)next;
+				portabilityFeatures->constantAlphaColorBlendFactors = true;
 				portabilityFeatures->events = true;
-				portabilityFeatures->standardImageViews = _mvkInstance->getMoltenVKConfiguration()->fullImageViewSwizzle || _metalFeatures.nativeTextureSwizzle;
+				portabilityFeatures->imageViewFormatReinterpretation = true;
+				portabilityFeatures->imageViewFormatSwizzle = (_metalFeatures.nativeTextureSwizzle ||
+															   _mvkInstance->getMoltenVKConfiguration()->fullImageViewSwizzle);
+				portabilityFeatures->imageView2DOn3DImage = false;
+				portabilityFeatures->multisampleArrayImage = _metalFeatures.multisampleArrayTextures;
+				portabilityFeatures->mutableComparisonSamplers = _metalFeatures.depthSampleCompare;
+				portabilityFeatures->pointPolygons = false;
 				portabilityFeatures->samplerMipLodBias = false;
+				portabilityFeatures->separateStencilMaskRef = true;
+				portabilityFeatures->shaderSampleRateInterpolationFunctions = false;
+				portabilityFeatures->tessellationIsolines = false;
+				portabilityFeatures->tessellationPointMode = false;
+				portabilityFeatures->triangleFans = false;
+				portabilityFeatures->vertexAttributeAccessBeyondStride = true;	// Costs additional buffers. Should make configuration switch.
 				break;
 			}
 			case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_INTEGER_FUNCTIONS_2_FEATURES_INTEL: {
@@ -199,6 +210,23 @@ void MVKPhysicalDevice::getProperties(VkPhysicalDeviceProperties2* properties) {
 	properties->properties = _properties;
 	for (auto* next = (VkBaseOutStructure*)properties->pNext; next; next = next->pNext) {
 		switch ((uint32_t)next->sType) {
+			case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_STENCIL_RESOLVE_PROPERTIES: {
+				auto* depthStencilResolveProps = (VkPhysicalDeviceDepthStencilResolveProperties*)next;
+
+				// We can always support resolve from sample zero. Other modes require additional capabilities.
+				depthStencilResolveProps->supportedDepthResolveModes = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
+				if (_metalFeatures.depthResolve) {
+					depthStencilResolveProps->supportedDepthResolveModes |= VK_RESOLVE_MODE_MIN_BIT | VK_RESOLVE_MODE_MAX_BIT;
+				}
+				// Metal allows you to set the stencil resolve filter to either
+				// Sample0 or DepthResolvedSample--in other words, you can always use sample 0,
+				// but you can also use the sample chosen for depth resolve. This is impossible
+				// to express in Vulkan.
+				depthStencilResolveProps->supportedStencilResolveModes = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
+				depthStencilResolveProps->independentResolveNone = true;
+				depthStencilResolveProps->independentResolve = true;
+				break;
+			}
 			case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES: {
 				auto* physicalDeviceDriverProps = (VkPhysicalDeviceDriverPropertiesKHR*)next;
 				strcpy(physicalDeviceDriverProps->driverName, "MoltenVK");
@@ -270,10 +298,10 @@ void MVKPhysicalDevice::getProperties(VkPhysicalDeviceProperties2* properties) {
             case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_PROPERTIES_EXT: {
 				auto* inlineUniformBlockProps = (VkPhysicalDeviceInlineUniformBlockPropertiesEXT*)next;
 				inlineUniformBlockProps->maxInlineUniformBlockSize = _metalFeatures.dynamicMTLBufferSize;
-                inlineUniformBlockProps->maxPerStageDescriptorInlineUniformBlocks = _properties.limits.maxPerStageDescriptorUniformBuffers;
-                inlineUniformBlockProps->maxPerStageDescriptorUpdateAfterBindInlineUniformBlocks = _properties.limits.maxPerStageDescriptorUniformBuffers;
-                inlineUniformBlockProps->maxDescriptorSetInlineUniformBlocks = _properties.limits.maxDescriptorSetUniformBuffers;
-                inlineUniformBlockProps->maxDescriptorSetUpdateAfterBindInlineUniformBlocks = _properties.limits.maxDescriptorSetUniformBuffers;
+                inlineUniformBlockProps->maxPerStageDescriptorInlineUniformBlocks = _metalFeatures.dynamicMTLBufferSize ? _metalFeatures.maxPerStageDynamicMTLBufferCount - 1 : 0;    // Less one for push constants
+                inlineUniformBlockProps->maxPerStageDescriptorUpdateAfterBindInlineUniformBlocks = inlineUniformBlockProps->maxPerStageDescriptorInlineUniformBlocks;
+                inlineUniformBlockProps->maxDescriptorSetInlineUniformBlocks = (inlineUniformBlockProps->maxPerStageDescriptorInlineUniformBlocks * 4);
+                inlineUniformBlockProps->maxDescriptorSetUpdateAfterBindInlineUniformBlocks = (inlineUniformBlockProps->maxPerStageDescriptorUpdateAfterBindInlineUniformBlocks * 4);
 				break;
 			}
 			case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_PROPERTIES_EXT: {
@@ -298,8 +326,8 @@ void MVKPhysicalDevice::getProperties(VkPhysicalDeviceProperties2* properties) {
 				divisorProps->maxVertexAttribDivisor = kMVKUndefinedLargeUInt32;
 				break;
 			}
-			case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PORTABILITY_SUBSET_PROPERTIES_EXTX: {
-				auto* portabilityProps = (VkPhysicalDevicePortabilitySubsetPropertiesEXTX*)next;
+			case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PORTABILITY_SUBSET_PROPERTIES_KHR: {
+				auto* portabilityProps = (VkPhysicalDevicePortabilitySubsetPropertiesKHR*)next;
 				portabilityProps->minVertexInputBindingStrideAlignment = (uint32_t)_metalFeatures.vertexStrideAlignment;
 				break;
 			}
@@ -384,6 +412,8 @@ VkResult MVKPhysicalDevice::getImageFormatProperties(VkFormat format,
 
 	if ( !pImageFormatProperties ) { return VK_SUCCESS; }
 
+	mvkClear(pImageFormatProperties);
+
 	// Metal does not support creating uncompressed views of compressed formats.
 	// Metal does not support split-instance images.
 	if (mvkIsAnyFlagEnabled(flags, VK_IMAGE_CREATE_BLOCK_TEXEL_VIEW_COMPATIBLE_BIT | VK_IMAGE_CREATE_SPLIT_INSTANCE_BIND_REGIONS_BIT)) {
@@ -391,10 +421,18 @@ VkResult MVKPhysicalDevice::getImageFormatProperties(VkFormat format,
 	}
 
 	MVKFormatType mvkFmt = _pixelFormats.getFormatType(format);
+	bool isChromaSubsampled = _pixelFormats.getChromaSubsamplingPlaneCount(format) > 0;
+	bool isMultiPlanar = _pixelFormats.getChromaSubsamplingPlaneCount(format) > 1;
+	bool isBGRG = isChromaSubsampled && !isMultiPlanar && _pixelFormats.getBlockTexelSize(format).width > 1;
 	bool hasAttachmentUsage = mvkIsAnyFlagEnabled(usage, (VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
 														  VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
 														  VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT |
 														  VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT));
+
+	// Disjoint memory requires a multiplanar format.
+	if (!isMultiPlanar && mvkIsAnyFlagEnabled(flags, VK_IMAGE_CREATE_DISJOINT_BIT)) {
+		return VK_ERROR_FORMAT_NOT_SUPPORTED;
+	}
 
 	VkPhysicalDeviceLimits* pLimits = &_properties.limits;
 	VkExtent3D maxExt = { 1, 1, 1};
@@ -408,10 +446,7 @@ VkResult MVKPhysicalDevice::getImageFormatProperties(VkFormat format,
 		case VK_IMAGE_TYPE_1D:
 			maxExt.height = 1;
 			maxExt.depth = 1;
-			if (mvkTreatTexture1DAs2D()) {
-				maxExt.width = pLimits->maxImageDimension2D;
-				maxLevels = mvkMipmapLevels3D(maxExt);
-			} else {
+			if (!mvkTreatTexture1DAs2D()) {
 				maxExt.width = pLimits->maxImageDimension1D;
 				maxLevels = 1;
 				sampleCounts = VK_SAMPLE_COUNT_1_BIT;
@@ -425,29 +460,42 @@ VkResult MVKPhysicalDevice::getImageFormatProperties(VkFormat format,
 				// Metal does not allow compressed or depth/stencil formats on native 1D textures
 				if (mvkFmt == kMVKFormatDepthStencil) { return VK_ERROR_FORMAT_NOT_SUPPORTED; }
 				if (mvkFmt == kMVKFormatCompressed) { return VK_ERROR_FORMAT_NOT_SUPPORTED; }
+				if (isChromaSubsampled) { return VK_ERROR_FORMAT_NOT_SUPPORTED; }
+				break;
 			}
-			break;
 
+			// A 420 1D image doesn't make much sense.
+			if (isChromaSubsampled && _pixelFormats.getBlockTexelSize(format).height > 1) {
+				return VK_ERROR_FORMAT_NOT_SUPPORTED;
+			}
+			// Vulkan doesn't allow 1D multisampled images.
+			sampleCounts = VK_SAMPLE_COUNT_1_BIT;
+			/* fallthrough */
 		case VK_IMAGE_TYPE_2D:
 			if (mvkIsAnyFlagEnabled(flags, VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT) ) {
+				// Chroma-subsampled cube images aren't supported.
+				if (isChromaSubsampled) { return VK_ERROR_FORMAT_NOT_SUPPORTED; }
+				// 1D cube images aren't supported.
+				if (type == VK_IMAGE_TYPE_1D) { return VK_ERROR_FORMAT_NOT_SUPPORTED; }
 				maxExt.width = pLimits->maxImageDimensionCube;
 				maxExt.height = pLimits->maxImageDimensionCube;
 			} else {
 				maxExt.width = pLimits->maxImageDimension2D;
-				maxExt.height = pLimits->maxImageDimension2D;
+				maxExt.height = (type == VK_IMAGE_TYPE_1D ? 1 : pLimits->maxImageDimension2D);
 			}
 			maxExt.depth = 1;
 			if (tiling == VK_IMAGE_TILING_LINEAR) {
 				// Linear textures have additional restrictions under Metal:
-				// - They may not be depth/stencil or compressed textures.
-				if (mvkFmt == kMVKFormatDepthStencil || mvkFmt == kMVKFormatCompressed) {
+				// - They may not be depth/stencil, compressed, or chroma subsampled textures.
+				//   We allow multi-planar formats because those internally use non-subsampled formats.
+				if (mvkFmt == kMVKFormatDepthStencil || mvkFmt == kMVKFormatCompressed || isBGRG) {
 					return VK_ERROR_FORMAT_NOT_SUPPORTED;
 				}
 #if MVK_MACOS
 				// - On macOS, Linear textures may not be used as framebuffer attachments.
 				if (hasAttachmentUsage) { return VK_ERROR_FORMAT_NOT_SUPPORTED; }
 #endif
-				// Linear textures may only have one mip level. layer & sample
+				// Linear textures may only have one mip level, layer & sample.
 				maxLevels = 1;
 				maxLayers = 1;
 				sampleCounts = VK_SAMPLE_COUNT_1_BIT;
@@ -455,14 +503,22 @@ VkResult MVKPhysicalDevice::getImageFormatProperties(VkFormat format,
 				VkFormatProperties fmtProps;
 				getFormatProperties(format, &fmtProps);
 				// Compressed multisampled textures aren't supported.
+				// Chroma-subsampled multisampled textures aren't supported.
 				// Multisampled cube textures aren't supported.
 				// Non-renderable multisampled textures aren't supported.
-				if (mvkFmt == kMVKFormatCompressed ||
+				if (mvkFmt == kMVKFormatCompressed || isChromaSubsampled ||
 					mvkIsAnyFlagEnabled(flags, VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT) ||
 					!mvkIsAnyFlagEnabled(fmtProps.optimalTilingFeatures, VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT|VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) ) {
 					sampleCounts = VK_SAMPLE_COUNT_1_BIT;
 				}
-				maxLevels = mvkMipmapLevels3D(maxExt);
+				// BGRG and GBGR images may only have one mip level and one layer.
+				// Other chroma subsampled formats may have multiple mip levels, but still only one layer.
+				if (isChromaSubsampled) {
+					maxLevels = isBGRG ? 1 : mvkMipmapLevels3D(maxExt);
+					maxLayers = 1;
+				} else {
+					maxLevels = mvkMipmapLevels3D(maxExt);
+				}
 			}
 			break;
 
@@ -472,7 +528,8 @@ VkResult MVKPhysicalDevice::getImageFormatProperties(VkFormat format,
 				return VK_ERROR_FORMAT_NOT_SUPPORTED;
 			}
 			// Metal does not allow compressed or depth/stencil formats on 3D textures
-			if (mvkFmt == kMVKFormatDepthStencil
+			if (mvkFmt == kMVKFormatDepthStencil ||
+				isChromaSubsampled
 #if MVK_IOS_OR_TVOS
 				|| mvkFmt == kMVKFormatCompressed
 #endif
@@ -532,7 +589,7 @@ VkResult MVKPhysicalDevice::getImageFormatProperties(const VkPhysicalDeviceImage
         switch (nextProps->sType) {
             case VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_IMAGE_FORMAT_PROPERTIES: {
                 auto* samplerYcbcrConvProps = (VkSamplerYcbcrConversionImageFormatProperties*)nextProps;
-                samplerYcbcrConvProps->combinedImageSamplerDescriptorCount = _pixelFormats.getChromaSubsamplingPlaneCount(pImageFormatInfo->format);
+                samplerYcbcrConvProps->combinedImageSamplerDescriptorCount = std::max(_pixelFormats.getChromaSubsamplingPlaneCount(pImageFormatInfo->format), (uint8_t)1u);
                 break;
             }
             default:
@@ -542,50 +599,10 @@ VkResult MVKPhysicalDevice::getImageFormatProperties(const VkPhysicalDeviceImage
 
 	if ( !_pixelFormats.isSupported(pImageFormatInfo->format) ) { return VK_ERROR_FORMAT_NOT_SUPPORTED; }
 
-	if ( !getImageViewIsSupported(pImageFormatInfo) ) { return VK_ERROR_FORMAT_NOT_SUPPORTED; }
-
 	return getImageFormatProperties(pImageFormatInfo->format, pImageFormatInfo->type,
 									pImageFormatInfo->tiling, pImageFormatInfo->usage,
 									pImageFormatInfo->flags,
 									&pImageFormatProperties->imageFormatProperties);
-}
-
-// If the image format info links portability image view info, test if an image view of that configuration is supported
-bool MVKPhysicalDevice::getImageViewIsSupported(const VkPhysicalDeviceImageFormatInfo2 *pImageFormatInfo) {
-	for (const auto* next = (VkBaseInStructure*)pImageFormatInfo->pNext; next; next = next->pNext) {
-		switch ((uint32_t)next->sType) {
-			case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_VIEW_SUPPORT_EXTX: {
-				auto* portImgViewInfo = (VkPhysicalDeviceImageViewSupportEXTX*)next;
-
-				// Create an image view and test whether it could be configured
-				VkImageViewCreateInfo viewInfo = {
-					.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-					.pNext = portImgViewInfo->pNext,
-					.flags = portImgViewInfo->flags,
-					.image = nullptr,
-					.viewType = portImgViewInfo->viewType,
-					.format = portImgViewInfo->format,
-					.components = portImgViewInfo->components,
-					.subresourceRange = {
-						.aspectMask = portImgViewInfo->aspectMask,
-						.baseMipLevel = 0,
-						.levelCount = 1,
-						.baseArrayLayer = 0,
-						.layerCount = 1},
-				};
-                MTLPixelFormat mtlPixFmt = _pixelFormats.getMTLPixelFormat(viewInfo.format);
-				bool useSwizzle;
-				return (MVKImageView::validateSwizzledMTLPixelFormat(&viewInfo, this,
-																	 _metalFeatures.nativeTextureSwizzle,
-																	 _mvkInstance->getMoltenVKConfiguration()->fullImageViewSwizzle,
-																	 mtlPixFmt, useSwizzle) == VK_SUCCESS);
-			}
-			default:
-				break;
-		}
-	}
-
-	return true;
 }
 
 void MVKPhysicalDevice::getExternalBufferProperties(const VkPhysicalDeviceExternalBufferInfo* pExternalBufferInfo,
@@ -1002,6 +1019,7 @@ void MVKPhysicalDevice::initMetalFeatures() {
 	_metalFeatures.maxPerStageBufferCount = 31;
     _metalFeatures.maxMTLBufferSize = (256 * MEBI);
     _metalFeatures.dynamicMTLBufferSize = 0;
+    _metalFeatures.maxPerStageDynamicMTLBufferCount = 0;
 
     _metalFeatures.maxPerStageSamplerCount = 16;
     _metalFeatures.maxQueryBufferSize = (64 * KIBI);
@@ -1026,6 +1044,8 @@ void MVKPhysicalDevice::initMetalFeatures() {
     _metalFeatures.texelBuffers = true;
 	_metalFeatures.maxTextureDimension = (8 * KIBI);
     _metalFeatures.dynamicMTLBufferSize = (4 * KIBI);
+    _metalFeatures.sharedLinearTextures = true;
+    _metalFeatures.maxPerStageDynamicMTLBufferCount = _metalFeatures.maxPerStageBufferCount;
 
     if (supportsMTLFeatureSet(tvOS_GPUFamily1_v2)) {
 		_metalFeatures.mslVersionEnum = MTLLanguageVersion1_2;
@@ -1055,6 +1075,7 @@ void MVKPhysicalDevice::initMetalFeatures() {
 		_metalFeatures.depthSampleCompare = true;
 		_metalFeatures.arrayOfTextures = true;
 		_metalFeatures.arrayOfSamplers = true;
+		_metalFeatures.depthResolve = true;
 	}
 
 	if ( mvkOSVersionIsAtLeast(13.0) ) {
@@ -1073,11 +1094,13 @@ void MVKPhysicalDevice::initMetalFeatures() {
 	_metalFeatures.mtlCopyBufferAlignment = 1;
     _metalFeatures.texelBuffers = true;
 	_metalFeatures.maxTextureDimension = (4 * KIBI);
+    _metalFeatures.sharedLinearTextures = true;
 
     if (supportsMTLFeatureSet(iOS_GPUFamily1_v2)) {
 		_metalFeatures.mslVersionEnum = MTLLanguageVersion1_1;
         _metalFeatures.dynamicMTLBufferSize = (4 * KIBI);
 		_metalFeatures.maxTextureDimension = (8 * KIBI);
+		_metalFeatures.maxPerStageDynamicMTLBufferCount = _metalFeatures.maxPerStageBufferCount;
     }
 
     if (supportsMTLFeatureSet(iOS_GPUFamily1_v3)) {
@@ -1106,6 +1129,7 @@ void MVKPhysicalDevice::initMetalFeatures() {
 		_metalFeatures.mtlBufferAlignment = 16;     // Min float4 alignment for typical vertex buffers. MTLBuffer may go down to 4 bytes for other data.
 		_metalFeatures.maxTextureDimension = (16 * KIBI);
 		_metalFeatures.depthSampleCompare = true;
+		_metalFeatures.depthResolve = true;
 	}
 
 	if (supportsMTLFeatureSet(iOS_GPUFamily3_v2)) {
@@ -1124,6 +1148,7 @@ void MVKPhysicalDevice::initMetalFeatures() {
 		_metalFeatures.layeredRendering = true;
 		_metalFeatures.stencilFeedback = true;
 		_metalFeatures.indirectTessellationDrawing = true;
+		_metalFeatures.stencilResolve = true;
 	}
 
 	if ( mvkOSVersionIsAtLeast(13.0) ) {
@@ -1157,6 +1182,7 @@ void MVKPhysicalDevice::initMetalFeatures() {
         _metalFeatures.combinedStoreResolveAction = true;
 		_metalFeatures.deferredStoreActions = true;
         _metalFeatures.maxMTLBufferSize = (1 * GIBI);
+        _metalFeatures.maxPerStageDynamicMTLBufferCount = 14;
     }
 
     if (supportsMTLFeatureSet(macOS_GPUFamily1_v3)) {
@@ -1180,12 +1206,17 @@ void MVKPhysicalDevice::initMetalFeatures() {
 	if (supportsMTLFeatureSet(macOS_GPUFamily2_v1)) {
 		_metalFeatures.multisampleLayeredRendering = _metalFeatures.layeredRendering;
 		_metalFeatures.stencilFeedback = true;
+		_metalFeatures.depthResolve = true;
+		_metalFeatures.stencilResolve = true;
 	}
 
 	if ( mvkOSVersionIsAtLeast(10.15) ) {
 		_metalFeatures.mslVersionEnum = MTLLanguageVersion2_2;
 		_metalFeatures.native3DCompressedTextures = true;
         _metalFeatures.renderWithoutAttachments = true;
+        if ( mvkOSVersionIsAtLeast(mvkMakeOSVersion(10, 15, 5)) ) {
+            _metalFeatures.sharedLinearTextures = true;
+        }
 		if (supportsMTLGPUFamily(Mac2)) {
 			_metalFeatures.nativeTextureSwizzle = true;
 			_metalFeatures.placementHeaps = useMTLHeaps;
@@ -1220,9 +1251,12 @@ void MVKPhysicalDevice::initMetalFeatures() {
 	_metalFeatures.mslVersion = SPIRV_CROSS_NAMESPACE::CompilerMSL::Options::make_msl_version(maj, min);
 
 	switch (_metalFeatures.mslVersionEnum) {
+#if (defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 101600) ||  \
+	(defined(__IPHONE_OS_VERSION_MAX_ALLOWED) && __IPHONE_OS_VERSION_MAX_ALLOWED >= 140000)		// also covers tvOS
 		case MTLLanguageVersion2_3:
 			setMSLVersion(2, 3);
 			break;
+#endif
 		case MTLLanguageVersion2_2:
 			setMSLVersion(2, 2);
 			break;
@@ -1268,7 +1302,6 @@ void MVKPhysicalDevice::initFeatures() {
     _features.shaderClipDistance = true;
     _features.shaderInt16 = true;
     _features.multiDrawIndirect = true;
-    _features.variableMultisampleRate = true;
     _features.inheritedQueries = true;
 
 	_features.shaderSampledImageArrayDynamicIndexing = _metalFeatures.arrayOfTextures;
@@ -1410,7 +1443,7 @@ void MVKPhysicalDevice::initFeatures() {
 //    VkBool32    sparseResidency8Samples;
 //    VkBool32    sparseResidency16Samples;
 //    VkBool32    sparseResidencyAliased;
-//    VkBool32    variableMultisampleRate;                      // done
+//    VkBool32    variableMultisampleRate;
 //    VkBool32    inheritedQueries;                             // done
 //} VkPhysicalDeviceFeatures;
 
@@ -1522,7 +1555,6 @@ void MVKPhysicalDevice::initProperties() {
         uint32_t maxStorage = 0, maxUniform = 0;
         bool singleTexelStorage = true, singleTexelUniform = true;
         _pixelFormats.enumerateSupportedFormats({0, 0, VK_FORMAT_FEATURE_UNIFORM_TEXEL_BUFFER_BIT | VK_FORMAT_FEATURE_STORAGE_TEXEL_BUFFER_BIT}, true, [&](VkFormat vk) {
-            if ( _pixelFormats.getChromaSubsamplingComponentBits(vk) > 0 ) { return false; }    // Skip chroma subsampling formats
 			MTLPixelFormat mtlFmt = _pixelFormats.getMTLPixelFormat(vk);
 			if ( !mtlFmt ) { return false; }	// If format is invalid, avoid validation errors on MTLDevice format alignment calls
 
@@ -2264,6 +2296,11 @@ void MVKPhysicalDevice::initExtensions() {
 	MVKExtensionList* pWritableExtns = (MVKExtensionList*)&_supportedExtensions;
 	pWritableExtns->disableAllButEnabledDeviceExtensions();
 
+#if MVK_IOS_OR_TVOS
+	if (!_metalFeatures.depthResolve) {
+		pWritableExtns->vk_KHR_depth_stencil_resolve.enabled = false;
+	}
+#endif
 	if (!_metalFeatures.rasterOrderGroups) {
 		pWritableExtns->vk_EXT_fragment_shader_interlock.enabled = false;
 	}
@@ -2961,8 +2998,15 @@ uint32_t MVKDevice::getMetalBufferIndexForVertexAttributeBinding(uint32_t bindin
 VkDeviceSize MVKDevice::getVkFormatTexelBufferAlignment(VkFormat format, MVKBaseObject* mvkObj) {
 	VkDeviceSize deviceAlignment = 0;
 	id<MTLDevice> mtlDev = getMTLDevice();
+	MVKPixelFormats* mvkPixFmts = getPixelFormats();
 	if ([mtlDev respondsToSelector: @selector(minimumLinearTextureAlignmentForPixelFormat:)]) {
-		deviceAlignment = [mtlDev minimumLinearTextureAlignmentForPixelFormat: getPixelFormats()->getMTLPixelFormat(format)];
+		MTLPixelFormat mtlPixFmt = mvkPixFmts->getMTLPixelFormat(format);
+		if (mvkPixFmts->getChromaSubsamplingPlaneCount(format) >= 2) {
+			// Use plane 1 to get the alignment requirements. In a 2-plane format, this will
+			// typically have stricter alignment requirements due to it being a 2-component format.
+			mtlPixFmt = mvkPixFmts->getChromaSubsamplingPlaneMTLPixelFormat(format, 1);
+		}
+		deviceAlignment = [mtlDev minimumLinearTextureAlignmentForPixelFormat: mtlPixFmt];
 	}
 	return deviceAlignment ? deviceAlignment : _pProperties->limits.minTexelBufferOffsetAlignment;
 }
@@ -3175,8 +3219,8 @@ void MVKDevice::enableFeatures(const VkDeviceCreateInfo* pCreateInfo) {
 	mvkClear(&_enabledPortabilityFeatures);
 
 	// Fetch the available physical device features.
-	VkPhysicalDevicePortabilitySubsetFeaturesEXTX pdPortabilityFeatures;
-	pdPortabilityFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PORTABILITY_SUBSET_FEATURES_EXTX;
+	VkPhysicalDevicePortabilitySubsetFeaturesKHR pdPortabilityFeatures;
+	pdPortabilityFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PORTABILITY_SUBSET_FEATURES_KHR;
 	pdPortabilityFeatures.pNext = NULL;
 
 	VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT pdVtxAttrDivFeatures;
@@ -3322,11 +3366,11 @@ void MVKDevice::enableFeatures(const VkDeviceCreateInfo* pCreateInfo) {
 							   &pdVtxAttrDivFeatures.vertexAttributeInstanceRateDivisor, 2);
 				break;
 			}
-			case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PORTABILITY_SUBSET_FEATURES_EXTX: {
-				auto* requestedFeatures = (VkPhysicalDevicePortabilitySubsetFeaturesEXTX*)next;
+			case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PORTABILITY_SUBSET_FEATURES_KHR: {
+				auto* requestedFeatures = (VkPhysicalDevicePortabilitySubsetFeaturesKHR*)next;
 				enableFeatures(&_enabledPortabilityFeatures.triangleFans,
 							   &requestedFeatures->triangleFans,
-							   &pdPortabilityFeatures.triangleFans, 5);
+							   &pdPortabilityFeatures.triangleFans, 15);
 				break;
 			}
 			default:

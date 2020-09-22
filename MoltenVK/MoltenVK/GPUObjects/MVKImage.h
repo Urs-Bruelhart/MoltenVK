@@ -144,8 +144,10 @@ protected:
     MVKImageMemoryBinding(MVKDevice* device, MVKImage* image, uint8_t planeIndex);
 
     MVKImage* _image;
+    id<MTLBuffer> _mtlTexelBuffer = nil;
+    NSUInteger _mtlTexelBufferOffset = 0;
     uint8_t _planeIndex;
-    bool _usesTexelBuffer;
+    bool _ownsTexelBuffer = false;
 };
 
 
@@ -366,6 +368,9 @@ protected:
 	bool _isLinear;
 	bool _is3DCompressed;
 	bool _isAliasable;
+	bool _hasExtendedUsage;
+	bool _hasMutableFormat;
+	bool _isLinearForAtomics;
 };
 
 
@@ -586,6 +591,7 @@ public:
 	 * This is a static function that can be used to validate image view formats prior to creating one.
 	 */
 	static VkResult validateSwizzledMTLPixelFormat(const VkImageViewCreateInfo* pCreateInfo,
+												   VkImageUsageFlags usage,
 												   MVKVulkanAPIObject* apiObject,
 												   bool hasNativeSwizzleSupport,
 												   bool hasShaderSwizzleSupport,
